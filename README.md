@@ -15,7 +15,6 @@ All models are baked into the image for fast cold starts — no network volume r
 1. Create a new **Serverless Endpoint** on [runpod.io](https://www.runpod.io/)
 2. Set the Docker image to `runpod/comfyui-faceswap-sdxl:latest`
 3. Select a GPU with **at least 32 GB VRAM** (e.g. A100 40GB, A6000)
-4. Optionally attach a network volume mounted at `/runpod-volume` if you want to persist generated images
 
 ## API Usage
 
@@ -42,9 +41,7 @@ Use `/runsync` for synchronous requests (waits for the result). For async, use `
     "image_url": "https://example.com/face.png",
     "face_description": "the woman on the left",
     "output": {
-      "include_base64": true,
-      "save_to_volume": false,
-      "volume_path": "outputs"
+      "include_base64": true
     }
   }
 }
@@ -64,8 +61,6 @@ Use `/runsync` for synchronous requests (waits for the result). For async, use `
 | `image_url` | no | — | Face reference URL (enables face swap) |
 | `face_description` | no | `""` | Which face to pick from reference |
 | `output.include_base64` | no | `true` | Return base64 PNG |
-| `output.save_to_volume` | no | `false` | Save to network volume |
-| `output.volume_path` | no | `"outputs"` | Folder on `/runpod-volume/` |
 
 ### Modes
 
@@ -83,7 +78,6 @@ Use `/runsync` for synchronous requests (waits for the result). For async, use `
   "output": {
     "duration_seconds": 3.42,
     "image_base64": "<base64-encoded PNG>",
-    "image_path": "/runpod-volume/outputs/42_1773510473.png",
     "seed": 42,
     "status": "success"
   },
