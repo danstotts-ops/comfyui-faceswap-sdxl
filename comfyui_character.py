@@ -5,7 +5,7 @@
 # - No @remote decorator — runs directly in a Docker container
 # - No _install_system_deps() — system deps baked into Docker image
 # - No _clone_repos() — ComfyUI + custom nodes baked into Docker image
-# - ComfyUI lives at /comfyui (in Docker image), models at /runpod-volume/
+# - ComfyUI and all models live inside the Docker image (no network volume)
 # - generate() is synchronous (RunPod handler doesn't need async)
 import logging
 import os
@@ -22,23 +22,9 @@ class ComfyUICharacter:
     - Face swap: IPAdapter FaceID + Advanced -> KSampler -> InstantID -> DetailerForEach
     """
 
-    # ComfyUI is baked into the Docker image at /comfyui
+    # ComfyUI and all models are baked into the Docker image
     COMFYUI_PATH = "/comfyui"
-    # Models: use baked-in path if available (NVMe), else network volume
-    BAKED_MODELS_PATH = "/baked-models"
-    MODELS_PATH = (
-        BAKED_MODELS_PATH
-        if os.path.exists(os.path.join(BAKED_MODELS_PATH, "models", "checkpoints"))
-        else "/runpod-volume/comfyui/ComfyUI"
-    )
-    # Bump when models change to force re-download
-    INSTALL_VERSION = "v5"
-    SENTINEL_FILE = (
-        os.path.join(BAKED_MODELS_PATH, "comfyui", ".install_complete")
-        if os.path.exists(os.path.join(BAKED_MODELS_PATH, "comfyui"))
-        else "/runpod-volume/comfyui/.install_complete"
-    )
-    HF_TOKEN_FILE = "/runpod-volume/comfyui/.hf_token"
+    MODELS_PATH = "/baked-models"
 
     CUSTOM_NODES = [
         "https://github.com/ltdrdata/ComfyUI-Impact-Pack",
@@ -47,166 +33,11 @@ class ComfyUICharacter:
         "https://github.com/cubiq/ComfyUI_InstantID",
     ]
 
-    # (hf_repo, hf_filename, dest_subdir, dest_filename)
-    HF_MODELS = [
-        # CyberRealistic XL v7 (primary generation checkpoint)
-        (
-            "cyberdelia/CyberRealisticXL",
-            "CyberRealisticXLPlay_V7.0_FP16.safetensors",
-            "models/checkpoints",
-            "cyberrealistic_xl_v7.safetensors",
-        ),
-        # Juggernaut XI (used for InstantID face refinement only)
-        (
-            "RunDiffusion/Juggernaut-XI-v11",
-            "Juggernaut-XI-byRunDiffusion.safetensors",
-            "models/checkpoints",
-            "Juggernaut-XI-byRunDiffusion.safetensors",
-        ),
-        # CLIP Vision (renamed to match Modal's expected filename)
-        (
-            "laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
-            "open_clip_model.safetensors",
-            "models/clip_vision",
-            "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors",
-        ),
-        (
-            "h94/IP-Adapter-FaceID",
-            "ip-adapter-faceid-plusv2_sdxl.bin",
-            "models/ipadapter",
-            "ip-adapter-faceid-plusv2_sdxl.bin",
-        ),
-        (
-            "h94/IP-Adapter-FaceID",
-            "ip-adapter-faceid-plusv2_sdxl_lora.safetensors",
-            "models/loras",
-            "ip-adapter-faceid-plusv2_sdxl_lora.safetensors",
-        ),
-        (
-            "h94/IP-Adapter",
-            "sdxl_models/ip-adapter-plus-face_sdxl_vit-h.safetensors",
-            "models/ipadapter",
-            "ip-adapter-plus-face_sdxl_vit-h.safetensors",
-        ),
-        (
-            "InstantX/InstantID",
-            "ControlNetModel/diffusion_pytorch_model.safetensors",
-            "models/controlnet",
-            "diffusion_pytorch_model_instantid.safetensors",
-        ),
-        (
-            "InstantX/InstantID",
-            "ip-adapter.bin",
-            "models/instantid",
-            "ip-adapter.bin",
-        ),
-        (
-            "ybelkada/segment-anything",
-            "checkpoints/sam_vit_b_01ec64.pth",
-            "models/sams",
-            "sam_vit_b_01ec64.pth",
-        ),
-        # InsightFace antelopev2 (for InstantID)
-        (
-            "lithiumice/insightface",
-            "models/antelopev2/1k3d68.onnx",
-            "models/insightface/models/antelopev2",
-            "1k3d68.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/antelopev2/2d106det.onnx",
-            "models/insightface/models/antelopev2",
-            "2d106det.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/antelopev2/genderage.onnx",
-            "models/insightface/models/antelopev2",
-            "genderage.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/antelopev2/glintr100.onnx",
-            "models/insightface/models/antelopev2",
-            "glintr100.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/antelopev2/scrfd_10g_bnkps.onnx",
-            "models/insightface/models/antelopev2",
-            "scrfd_10g_bnkps.onnx",
-        ),
-        # InsightFace buffalo_l (for IPAdapter)
-        (
-            "lithiumice/insightface",
-            "models/buffalo_l/1k3d68.onnx",
-            "models/insightface/models/buffalo_l",
-            "1k3d68.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/buffalo_l/2d106det.onnx",
-            "models/insightface/models/buffalo_l",
-            "2d106det.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/buffalo_l/det_10g.onnx",
-            "models/insightface/models/buffalo_l",
-            "det_10g.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/buffalo_l/genderage.onnx",
-            "models/insightface/models/buffalo_l",
-            "genderage.onnx",
-        ),
-        (
-            "lithiumice/insightface",
-            "models/buffalo_l/w600k_r50.onnx",
-            "models/insightface/models/buffalo_l",
-            "w600k_r50.onnx",
-        ),
-    ]
-
-    # (url, dest_subdir, dest_filename)
-    URL_MODELS = [
-        (
-            "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt",
-            "models/ultralytics/bbox",
-            "face_yolov8m.pt",
-        ),
-    ]
-
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        comfyui_path = self.COMFYUI_PATH
-        models_path = self.MODELS_PATH
+        self.logger.info(f"Using baked-in models from {self.MODELS_PATH}")
 
-        if models_path == self.BAKED_MODELS_PATH:
-            self.logger.info(f"Using baked-in models from {models_path} (NVMe)")
-        else:
-            self.logger.info(f"Using network volume models from {models_path}")
-
-        # Phase 1: Download models to network volume (cached, skip if sentinel)
-        sentinel_current = False
-        if os.path.exists(self.SENTINEL_FILE):
-            with open(self.SENTINEL_FILE) as f:
-                sentinel_current = f.read().strip() == self.INSTALL_VERSION
-        if not sentinel_current:
-            self._download_models(models_path)
-            os.makedirs(os.path.dirname(self.SENTINEL_FILE), exist_ok=True)
-            with open(self.SENTINEL_FILE, "w") as f:
-                f.write(self.INSTALL_VERSION)
-            self.logger.info("Installation complete, sentinel written")
-        else:
-            self.logger.info("Sentinel current, skipping model download")
-
-        # Phase 2: Initialize ComfyUI node system
-        self._init_comfyui_nodes(comfyui_path, models_path)
-
-        # Phase 3: Load all models to GPU
+        self._init_comfyui_nodes(self.COMFYUI_PATH, self.MODELS_PATH)
         self._load_models()
 
         self.logger.info("ComfyUICharacter initialized successfully")
@@ -227,8 +58,6 @@ class ComfyUICharacter:
                 - seed (int, optional): Random seed
                 - output (dict, optional): Output configuration
                     - include_base64 (bool, default true): Include base64 image in response
-                    - save_to_volume (bool, default false): Save image to network volume
-                    - volume_path (str, default "outputs"): Folder relative to /runpod-volume/
         """
         try:
             output_config = payload.get("output", {})
@@ -243,8 +72,6 @@ class ComfyUICharacter:
                 steps=payload.get("steps", 35),
                 cfg=payload.get("cfg", 2.0),
                 include_base64=output_config.get("include_base64", True),
-                save_to_volume=output_config.get("save_to_volume", False),
-                volume_path=output_config.get("volume_path", "outputs"),
             )
         except Exception as e:
             import traceback
@@ -264,8 +91,6 @@ class ComfyUICharacter:
         steps=35,
         cfg=2.0,
         include_base64=True,
-        save_to_volume=False,
-        volume_path="outputs",
     ):
         """Run the full workflow. Mirrors Modal's _generate exactly."""
         import random
@@ -339,74 +164,18 @@ class ComfyUICharacter:
             if include_base64:
                 result["image_base64"] = self._image_to_base64(decoded)
 
-            if save_to_volume:
-                result["image_path"] = self._save_to_volume(decoded, seed, volume_path)
-
             return result
 
     # -------------------------------------------------------------------------
     # Private: Installation & setup
     # -------------------------------------------------------------------------
 
-    def _download_models(self, models_path):
-        """Download all required models to the network volume."""
-        import shutil
-
-        import requests
-        from huggingface_hub import hf_hub_download
-
-        # HF_TOKEN needed for gated models (e.g. Juggernaut-XI).
-        hf_token = ""
-        if os.path.exists(self.HF_TOKEN_FILE):
-            with open(self.HF_TOKEN_FILE) as f:
-                hf_token = f.read().strip()
-        if not hf_token:
-            hf_token = os.environ.get("HF_TOKEN", "")
-        if hf_token:
-            self.logger.info("HF_TOKEN found, gated model access enabled")
-        else:
-            self.logger.warning("HF_TOKEN not set — gated models will fail to download")
-
-        for hf_repo, hf_file, dest_subdir, dest_name in self.HF_MODELS:
-            dest_dir = os.path.join(models_path, dest_subdir)
-            dest_path = os.path.join(dest_dir, dest_name)
-
-            if os.path.exists(dest_path):
-                self.logger.info(f"Model exists, skipping: {dest_name}")
-                continue
-
-            os.makedirs(dest_dir, exist_ok=True)
-            self.logger.info(f"Downloading {hf_repo}/{hf_file}...")
-            downloaded = hf_hub_download(
-                repo_id=hf_repo, filename=hf_file, token=hf_token
-            )
-            shutil.copy2(downloaded, dest_path)
-            self.logger.info(f"Saved to {dest_path}")
-
-        for url, dest_subdir, dest_name in self.URL_MODELS:
-            dest_dir = os.path.join(models_path, dest_subdir)
-            dest_path = os.path.join(dest_dir, dest_name)
-
-            if os.path.exists(dest_path):
-                self.logger.info(f"Model exists, skipping: {dest_name}")
-                continue
-
-            os.makedirs(dest_dir, exist_ok=True)
-            self.logger.info(f"Downloading {url}...")
-            resp = requests.get(url, timeout=600)
-            resp.raise_for_status()
-            with open(dest_path, "wb") as f:
-                f.write(resp.content)
-            self.logger.info(f"Saved to {dest_path}")
-
-        self.logger.info("All models downloaded")
-
     def _init_comfyui_nodes(self, comfyui_path, models_path):
         """Initialize ComfyUI's node system for programmatic access.
 
         Args:
             comfyui_path: Path to ComfyUI installation (in Docker image)
-            models_path: Path to models directory (on network volume)
+            models_path: Path to baked-in models root (in Docker image)
         """
         import importlib.util
         import sys
@@ -445,7 +214,7 @@ class ComfyUICharacter:
         import folder_paths
         import server
 
-        # Point ComfyUI at the network volume's model directories
+        # Point ComfyUI at the baked-in model directories
         model_dirs = [
             "checkpoints",
             "clip_vision",
@@ -458,18 +227,18 @@ class ComfyUICharacter:
             "ultralytics",
         ]
         for model_dir in model_dirs:
-            volume_model_path = os.path.join(models_path, "models", model_dir)
-            if os.path.exists(volume_model_path):
-                folder_paths.add_model_folder_path(model_dir, volume_model_path)
+            baked_model_path = os.path.join(models_path, "models", model_dir)
+            if os.path.exists(baked_model_path):
+                folder_paths.add_model_folder_path(model_dir, baked_model_path)
 
-        # Symlink volume model dirs into ComfyUI's models_dir so plugins
+        # Symlink baked model dirs into ComfyUI's models_dir so plugins
         # that construct paths directly from folder_paths.models_dir can
         # find them (e.g. ComfyUI_IPAdapter_plus for insightface/ultralytics).
         comfyui_models_dir = os.path.join(comfyui_path, "models")
         for model_dir in model_dirs:
-            volume_model_path = os.path.join(models_path, "models", model_dir)
+            baked_model_path = os.path.join(models_path, "models", model_dir)
             comfyui_model_path = os.path.join(comfyui_models_dir, model_dir)
-            if not os.path.exists(volume_model_path):
+            if not os.path.exists(baked_model_path):
                 continue
             if os.path.islink(comfyui_model_path):
                 continue  # Already a symlink
@@ -478,9 +247,9 @@ class ComfyUICharacter:
                 os.rmdir(comfyui_model_path)
             if not os.path.exists(comfyui_model_path):
                 self.logger.info(
-                    f"Symlinking {comfyui_model_path} -> {volume_model_path}"
+                    f"Symlinking {comfyui_model_path} -> {baked_model_path}"
                 )
-                os.symlink(volume_model_path, comfyui_model_path)
+                os.symlink(baked_model_path, comfyui_model_path)
 
         folder_paths.set_output_directory(os.path.join(comfyui_path, "output"))
 
@@ -680,7 +449,7 @@ class ComfyUICharacter:
         # bypasses that allocator path. Loaded in nf4 4-bit via bitsandbytes
         # to keep total VLM footprint ~3 GB — same envelope as the old Q4
         # GGUF, so the pipeline still fits a 32 GB GPU.
-        vlm_dir = os.path.join(self.BAKED_MODELS_PATH, "llm", "Qwen2.5-VL-3B-Instruct")
+        vlm_dir = os.path.join(self.MODELS_PATH, "llm", "Qwen2.5-VL-3B-Instruct")
         if os.path.isdir(vlm_dir):
             import torch
             from transformers import (
@@ -750,28 +519,6 @@ class ComfyUICharacter:
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    def _save_to_volume(self, tensor, seed, output_path):
-        """Save ComfyUI image tensor to network volume as PNG. Returns the file path."""
-        import time
-
-        import numpy as np
-        from PIL import Image
-
-        folder = f"/runpod-volume/{output_path.strip('/')}"
-        os.makedirs(folder, exist_ok=True)
-
-        timestamp = int(time.time())
-        filename = f"{seed}_{timestamp}.png"
-        filepath = os.path.join(folder, filename)
-
-        img_array = tensor[0].detach().cpu().numpy()
-        img_array = (img_array * 255).clip(0, 255).astype(np.uint8)
-        img = Image.fromarray(img_array)
-        img.save(filepath, format="PNG")
-
-        self.logger.info(f"Saved image to {filepath}")
-        return filepath
 
     def _pick_largest_face(self, segs):
         """Pick the largest detected face by bounding box area."""

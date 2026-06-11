@@ -61,6 +61,3 @@ RUN HF_TOKEN=${HF_TOKEN} python /tmp/download_models.py \
     && rm /tmp/download_models.py \
     && rm -rf /tmp/hf_cache /root/.cache/huggingface /root/.cache/pip \
     && mkdir -p /baked-models/comfyui && echo "v5" > /baked-models/comfyui/.install_complete
-
-# Redirect HuggingFace cache to network volume for any runtime downloads
-ENV HF_HOME=/runpod-volume/hf_cache
